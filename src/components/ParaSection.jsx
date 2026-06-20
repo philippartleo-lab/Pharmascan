@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { searchParapharmacie, getPrixIndicatif } from '../lib/api.js';
 import { Scan, Shield, Help } from '../lib/icons.jsx';
+
+const BarcodeScanner = lazy(() => import('./BarcodeScanner.jsx'));
 
 function cleanTags(tags) {
   return (tags || []).map((t) => t.replace(/^[a-z]{2}:/, '').replace(/-/g, ' '));
@@ -11,29 +13,30 @@ export default function ParaSection() {
   const [status, setStatus] = useState('idle'); // idle|loading|found|notfound|error
   const [product, setProduct] = useState(null);
   const [prix, setPrix] = useState(null);
+  const [scanning, setScanning] = useState(false);
 
-  async function doSearch() {
-    const c = code.trim().replace(/\s/g, '');
-    if (!c) {
-      setStatus('idle');
-      return;
-    }
-    if (!/^\d{8,13}$/.test(c)) {
-      setStatus('error');
-      return;
-    }
+  async function doSearch(c = code) {
+    const cleaned = (c || '').trim().replace(/\s/g, '');
+    if (!cleaned) { setStatus('idle'); return; }
+    if (!/^\d{8,13}$/.test(cleaned)) { setStatus('error'); return; }
     setStatus('loading');
     setPrix(null);
     try {
-      const p = await searchParapharmacie(c);
+      const p = await searchParapharmacie(cleaned);
       if (!p || !p.product_name) return setStatus('notfound');
       setProduct(p);
       setStatus('found');
-      setPrix(await getPrixIndicatif(c));
+      setPrix(await getPrixIndicatif(cleaned));
     } catch (e) {
       console.error('Erreur parapharmacie:', e);
       setStatus('error');
     }
+  }
+
+  function handleDetected(rawCode) {
+    setScanning(false);
+    setCode(rawCode);
+    doSearch(rawCode);
   }
 
   const allerg = product ? cleanTags(product.allergens_tags) : [];
@@ -46,14 +49,23 @@ export default function ParaSection() {
       <h1 className="title">Produit de parapharmacie</h1>
       <p className="sub">Scannez le code-barres pour voir la composition et les allergènes.</p>
 
-      <button className="scanbtn" onClick={() => alert("Le scan caméra s'active dans l'app installée (HTTPS). Pour l'instant, saisissez le code.")}>
+      <button className="scanbtn" onClick={() => setScanning(true)}>
         <Scan stroke="#fff" /> Scanner un produit
       </button>
+
+      {scanning && (
+        <Suspense fallback={null}>
+          <BarcodeScanner
+            onDetected={handleDetected}
+            onClose={() => setScanning(false)}
+          />
+        </Suspense>
+      )}
 
       <div className="field">
         <input value={code} inputMode="numeric" placeholder="Code-barres du produit" autoComplete="off"
           onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doSearch()} />
-        <button onClick={doSearch}>Chercher</button>
+        <button onClick={() => doSearch()}>Chercher</button>
       </div>
       <p className="note">Astuce : prenez un produit cosmétique de votre salle de bain et saisissez le code sous le code-barres. La recherche interroge la base ouverte Open Beauty Facts.</p>
 
@@ -68,7 +80,7 @@ export default function ParaSection() {
       )}
 
       {status === 'error' && (
-        <div className="card empty"><h2>Recherche indisponible</h2><p>Vérifiez le back-end (npm run server) et votre connexion, puis réessayez.</p></div>
+        <div className="card empty"><h2>Recherche indisponible</h2><p>Le code doit contenir entre 8 et 13 chiffres. Vérifiez votre saisie ou votre connexion.</p></div>
       )}
 
       {status === 'found' && product && (
