@@ -96,7 +96,7 @@ export default function ArmoireSection() {
       {expired.length > 0 && (
         <div className="card alert-expired">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertCircle size={20} stroke="#E24B4A" />
+            <Alert size={20} stroke="#E24B4A" />
             <div>
               <p className="alert-title">⚠️ Médicaments périmés</p>
               <p className="alert-text">{expired.length} médicament(s) à retirer.</p>
@@ -108,7 +108,7 @@ export default function ArmoireSection() {
       {expiringSoon.length > 0 && (
         <div className="card alert-warning">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertCircle size={20} stroke="#EF9F27" />
+            <Alert size={20} stroke="#EF9F27" />
             <div>
               <p className="alert-title">⏰ Expiration bientôt</p>
               <p className="alert-text">{expiringSoon.length} médicament(s) expirant dans 30 jours.</p>
@@ -198,7 +198,7 @@ export default function ArmoireSection() {
 
       {items.length === 0 && !showForm ? (
         <div className="card empty">
-          <div className="circle"><Package size={32} stroke="#9A9C97" /></div>
+          <div className="circle"><Box size={32} stroke="#9A9C97" /></div>
           <h2>Votre armoire est vide</h2>
           <p>Commencez par ajouter un médicament pour suivre votre santé.</p>
         </div>

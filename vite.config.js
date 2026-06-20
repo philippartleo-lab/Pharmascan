@@ -2,9 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Le proxy /api renvoie vers le petit back-end (server/index.js) en développement.
-// C'est lui qui interroge les sources officielles : il règle le CORS et centralise
-// les appels (BDPM, Open Beauty Facts, Open Prices, communes, OpenStreetMap…).
+// En production sur Vercel, les routes /api/* sont gérées par les fonctions
+// serverless dans le dossier /api. En développement local, utiliser `vercel dev`.
 export default defineConfig({
   plugins: [
     react(),
@@ -22,10 +21,5 @@ export default defineConfig({
         ]
       }
     })
-  ],
-  server: {
-    proxy: {
-      '/api': 'http://localhost:8787'
-    }
-  }
+  ]
 });
