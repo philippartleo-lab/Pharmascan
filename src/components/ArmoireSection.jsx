@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { loadArmoire, addMed, removeMed, updateMed, toggleReminder, isExpiringSoon, isExpired } from '../lib/storage.js';
 import { Star, Trash, Plus, Alert, Box } from '../lib/icons.jsx';
+import FicheMedicale from './FicheMedicale.jsx';
 
 const CATEGORIES = [
   { id: 'douleur', label: 'Douleur', icon: '💊' },
@@ -14,6 +15,7 @@ const CATEGORIES = [
 const SLOTS = [['matin', 'Matin'], ['midi', 'Midi'], ['soir', 'Soir']];
 
 export default function ArmoireSection() {
+  const [tab, setTab] = useState('medicaments'); // 'medicaments' | 'fiche'
   const [items, setItems] = useState(loadArmoire());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -92,6 +94,33 @@ export default function ArmoireSection() {
         <Star size={18} stroke="#085041" />
         <p><b>Fonctionnalité Premium</b> — gratuite pendant le lancement.</p>
       </div>
+
+      {/* Onglets */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, background: 'var(--surface)', borderRadius: 12, padding: 4 }}>
+        <button
+          onClick={() => setTab('medicaments')}
+          style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            background: tab === 'medicaments' ? '#fff' : 'transparent',
+            color: tab === 'medicaments' ? 'var(--teal-ink)' : 'var(--muted)',
+            boxShadow: tab === 'medicaments' ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+            transition: 'all 0.2s' }}
+        >
+          💊 Médicaments
+        </button>
+        <button
+          onClick={() => setTab('fiche')}
+          style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            background: tab === 'fiche' ? '#fff' : 'transparent',
+            color: tab === 'fiche' ? '#C0392B' : 'var(--muted)',
+            boxShadow: tab === 'fiche' ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+            transition: 'all 0.2s' }}
+        >
+          🏥 Fiche médicale
+        </button>
+      </div>
+
+      {tab === 'fiche' && <FicheMedicale />}
+      {tab === 'medicaments' && (<>
 
       {expired.length > 0 && (
         <div className="card alert-expired">
@@ -269,6 +298,7 @@ export default function ArmoireSection() {
       {items.length > 0 && (
         <p className="note">💡 Les rappels de notification s'activeront dans l'application installée.</p>
       )}
+      </>)}
     </section>
   );
 }

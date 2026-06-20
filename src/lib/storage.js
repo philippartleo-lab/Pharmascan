@@ -2,6 +2,7 @@
 // Stocke les médicaments avec catégorie, date d'expiration, quantité et rappels.
 
 const KEY = 'pharmascan_armoire';
+const FICHE_KEY = 'pharmascan_fiche_medicale';
 
 const mem = {};
 const store = {
@@ -65,6 +66,21 @@ export function isExpiringSoon(expirationDate) {
   const thirtyDaysFromNow = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
   return expDate <= thirtyDaysFromNow && expDate >= today;
 }
+
+// --- Fiche médicale d'urgence ---
+
+export const FICHE_DEFAULTS = {
+  prenom: '', nom: '', dateNaissance: '', groupeSanguin: '',
+  adresse: '',
+  contactNom: '', contactTel: '', contactLien: '',
+  allergies: '', traitements: '', antecedents: '', notes: '',
+};
+
+export function loadFiche() {
+  try { return { ...FICHE_DEFAULTS, ...JSON.parse(store.get(FICHE_KEY) || '{}') }; } catch { return { ...FICHE_DEFAULTS }; }
+}
+
+export function saveFiche(fiche) { store.set(FICHE_KEY, JSON.stringify(fiche)); }
 
 export function isExpired(expirationDate) {
   if (!expirationDate) return false;
