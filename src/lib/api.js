@@ -46,14 +46,53 @@ export function debounce(func, wait) {
 }
 
 // --- Médicaments ---
-export async function searchMedicaments(query) {
-  const digits = query.replace(/\s/g, '');
-  const isCip = /^\d{7,13}$/.test(digits);
-  const url = isCip ? `/api/medicaments?cip=${encodeURIComponent(digits)}` : `/api/medicaments?search=${encodeURIComponent(noAccents(query))}`;
-  const data = await j(url);
+
+// Un CIP-13 français commence toujours par 340 (codes BDPM).
+// Un CIP-7 est un nombre de 7 chiffres.
+// Tout autre code numérique est un EAN générique, pas un CIP.
+function classifyCode(raw) {
+  const digits = raw.replace(/\s/g, '');
+  if (/^\d{7}$/.test(digits)) return { type: 'cip7', digits };
+  if (/^340\d{10}$/.test(digits)) return { type: 'cip13', digits };
+  if (/^\d{8,13}$/.test(digits)) return { type: 'ean', digits };
+  return { type: 'text', digits: raw };
+}
+
+async function fetchByCode(digits) {
+  const data = await j(`/api/medicaments?cip=${encodeURIComponent(digits)}`);
+  return (Array.isArray(data) ? data : [data]).filter((x) => x && x.cis);
+}
+
+async function fetchByName(term) {
+  const data = await j(`/api/medicaments?search=${encodeURIComponent(noAccents(term))}`);
   const list = (Array.isArray(data) ? data : [data]).filter((x) => x && x.cis);
   list.sort((a, b) => (/comm/i.test(b.etatComercialisation || '') ? 1 : 0) - (/comm/i.test(a.etatComercialisation || '') ? 1 : 0));
-  return { list, isCip };
+  return list;
+}
+
+export async function searchMedicaments(query) {
+  const { type, digits } = classifyCode(query.trim());
+
+  // Recherche par nom directement
+  if (type === 'text') {
+    const list = await fetchByName(digits);
+    return { list, mode: 'name' };
+  }
+
+  // Code EAN non-médicament connu
+  if (type === 'ean') {
+    return { list: [], mode: 'ean', digits };
+  }
+
+  // CIP-7 ou CIP-13 : essai direct
+  let list = await fetchByCode(digits);
+
+  // CIP-13 : si rien, essai avec les 7 derniers chiffres (CIP-7 extrait)
+  if (!list.length && type === 'cip13') {
+    list = await fetchByCode(digits.slice(-7));
+  }
+
+  return { list, mode: list.length ? 'cip' : 'cip_notfound', digits };
 }
 
 export async function getGeneriques(med) {

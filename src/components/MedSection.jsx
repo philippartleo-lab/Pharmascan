@@ -1,8 +1,10 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
 import { searchMedicaments, getGeneriques, medAutocomplete, noAccents, debounce } from '../lib/api.js';
 import { addMed } from '../lib/storage.js';
 import { Suggest, Disclaimer } from './Common.jsx';
-import { Scan, Shield, FileText, Plus, Help, Chevron, ChevronLeft, Alert } from '../lib/icons.jsx';
+import { Scan, Shield, FileText, Plus, Help, Chevron, ChevronLeft, Alert, Search } from '../lib/icons.jsx';
+
+const BarcodeScanner = lazy(() => import('./BarcodeScanner.jsx'));
 
 const CHIPS = ['doliprane', 'codoliprane', 'ibuprofene'];
 const noticeUrl = (cis) => `https://base-donnees-publique.medicaments.gouv.fr/extrait.php?specid=${cis}`;
@@ -18,13 +20,14 @@ function substancesOf(m) {
 export default function MedSection() {
   const [query, setQuery] = useState('');
   const [sugg, setSugg] = useState([]);
-  const [status, setStatus] = useState('idle'); // idle|loading|list|fiche|notfound|error
+  const [status, setStatus] = useState('idle'); // idle|loading|list|fiche|notfound|ean|error
   const [list, setList] = useState([]);
   const [med, setMed] = useState(null);
   const [generics, setGenerics] = useState([]);
   const [added, setAdded] = useState(false);
-  
-  // Debounce optimisé avec useCallback
+  const [scanning, setScanning] = useState(false);
+  const [lastCode, setLastCode] = useState(''); // code scanné qui n'a pas abouti
+
   const debouncedAutocomplete = useCallback(
     debounce(async (v) => {
       if (v.trim().length >= 2) {
@@ -48,19 +51,27 @@ export default function MedSection() {
 
   async function doSearch(q) {
     const term = (q ?? query).trim();
-    if (!term) {
-      setStatus('idle');
-      return;
-    }
-    if (term.length < 2) {
-      setStatus('idle');
-      return;
-    }
-    setSugg([]); 
+    if (!term || term.length < 2) { setStatus('idle'); return; }
+    setSugg([]);
     setStatus('loading');
     try {
-      const { list: results } = await searchMedicaments(term);
-      if (!results || !results.length) return setStatus('notfound');
+      const { list: results, mode, digits } = await searchMedicaments(term);
+
+      // EAN lu au scan → pas un code médicament connu
+      if (mode === 'ean') {
+        setLastCode(digits);
+        return setStatus('ean');
+      }
+
+      if (!results || !results.length) {
+        // Code CIP scanné mais inconnu → propose de chercher par nom
+        if (mode === 'cip_notfound') {
+          setLastCode(term);
+          return setStatus('cip_notfound');
+        }
+        return setStatus('notfound');
+      }
+
       if (results.length === 1) return showFiche(results[0]);
       setList(results);
       setStatus('list');
@@ -68,6 +79,18 @@ export default function MedSection() {
       console.error('Erreur recherche:', e);
       setStatus('error');
     }
+  }
+
+  // Après un scan qui échoue, relance une recherche texte avec ce que l'utilisateur saisit
+  function doFallbackSearch(name) {
+    setQuery(name);
+    doSearch(name);
+  }
+
+  function handleDetected(rawCode) {
+    setScanning(false);
+    setQuery(rawCode);
+    doSearch(rawCode);
   }
 
   function addToArmoire() {
@@ -80,12 +103,18 @@ export default function MedSection() {
       <h1 className="title">Quel est ce médicament ?</h1>
       <p className="sub">Scannez la boîte ou cherchez par nom pour voir l'information officielle.</p>
 
-      <button className="scanbtn" onClick={() => alert("Le scan caméra s'active dans l'app installée (HTTPS). Pour l'instant, saisissez le nom ou le code.")}>
+      <button className="scanbtn" onClick={() => setScanning(true)}>
         <Scan stroke="#fff" /> Scanner un médicament
       </button>
 
+      {scanning && (
+        <Suspense fallback={null}>
+          <BarcodeScanner onDetected={handleDetected} onClose={() => setScanning(false)} />
+        </Suspense>
+      )}
+
       <div className="field">
-        <input value={query} placeholder="Nom ou code-barres" autoComplete="off"
+        <input value={query} placeholder="Nom ou code CIP" autoComplete="off"
           onChange={(e) => onInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && doSearch()}
           onBlur={() => setTimeout(() => setSugg([]), 150)} />
@@ -99,11 +128,37 @@ export default function MedSection() {
 
       {status === 'loading' && <div className="loader">Recherche dans la base officielle…</div>}
 
+      {/* Code EAN générique — pas un médicament */}
+      {status === 'ean' && (
+        <div className="card empty">
+          <div className="circle"><Scan size={32} stroke="#9A9C97" /></div>
+          <h2>Code EAN, pas un code CIP</h2>
+          <p>Le code <code style={{ background: '#f0f0f0', padding: '1px 5px', borderRadius: 4, fontSize: 13 }}>{lastCode}</code> est un code-barres EAN standard, pas un code médicament (CIP). Les médicaments utilisent un code CIP à 7 ou 13 chiffres (commençant par 340).</p>
+          <p style={{ marginTop: 8 }}>Cherchez plutôt par le <b>nom</b> du médicament :</p>
+          <FallbackInput onSearch={doFallbackSearch} />
+        </div>
+      )}
+
+      {/* Code CIP scanné mais introuvable dans la BDPM */}
+      {status === 'cip_notfound' && (
+        <div className="card empty">
+          <div className="circle"><Help size={32} stroke="#9A9C97" /></div>
+          <h2>Code non trouvé dans la BDPM</h2>
+          <p>Le code <code style={{ background: '#f0f0f0', padding: '1px 5px', borderRadius: 4, fontSize: 13 }}>{lastCode}</code> n'a pas été reconnu. Il peut s'agir d'un médicament étranger, d'un générique récent ou d'un code mal lu.</p>
+          <p style={{ marginTop: 8 }}>Essayez avec le <b>nom</b> imprimé sur la boîte :</p>
+          <FallbackInput onSearch={doFallbackSearch} />
+        </div>
+      )}
+
+      {/* Recherche texte sans résultat */}
       {status === 'notfound' && (
         <div className="card empty">
           <div className="circle"><Help size={32} stroke="#9A9C97" /></div>
-          <h2>Médicament non identifié</h2>
-          <p>Par sécurité, nous préférons ne rien afficher plutôt qu'une information incertaine. Vérifiez l'orthographe, ou demandez à votre pharmacien.</p>
+          <h2>Médicament non trouvé</h2>
+          <p>Aucun résultat dans la BDPM pour <b>« {query} »</b>. Vérifiez l'orthographe, essayez le nom générique ou la substance active (ex. « paracétamol »).</p>
+          <div className="chips" style={{ marginTop: 12, justifyContent: 'center' }}>
+            {CHIPS.map((c) => <span key={c} className="chip" onClick={() => { setQuery(c); doSearch(c); }}>{c}</span>)}
+          </div>
         </div>
       )}
 
@@ -111,7 +166,7 @@ export default function MedSection() {
         <div className="card empty">
           <div className="circle"><Alert size={32} stroke="#9A9C97" /></div>
           <h2>Base officielle injoignable</h2>
-          <p>Vérifiez que le back-end est démarré (npm run server) et votre connexion, puis réessayez.</p>
+          <p>Vérifiez votre connexion internet et réessayez.</p>
         </div>
       )}
 
@@ -135,6 +190,27 @@ export default function MedSection() {
       {status === 'fiche' && med && <Fiche med={med} generics={generics} added={added} onAdd={addToArmoire}
         onBack={list.length > 1 ? () => setStatus('list') : null} />}
     </section>
+  );
+}
+
+// Champ de saisie texte affiché dans les écrans d'erreur code
+function FallbackInput({ onSearch }) {
+  const [val, setVal] = useState('');
+  return (
+    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+      <input
+        value={val} onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && val.trim() && onSearch(val.trim())}
+        placeholder="Nom du médicament…"
+        style={{ flex: 1, padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', fontSize: 14 }}
+      />
+      <button
+        onClick={() => val.trim() && onSearch(val.trim())}
+        style={{ padding: '9px 14px', borderRadius: 9, background: 'var(--teal)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+      >
+        <Search size={16} stroke="#fff" />
+      </button>
+    </div>
   );
 }
 
@@ -167,7 +243,6 @@ function Fiche({ med, generics, added, onAdd, onBack }) {
         <div className="block">
           <p className="lbl">Disponibilité</p>
           <span className="avail ok"><span className="dot" /> Disponible</span>
-          <p className="note" style={{ marginTop: 6 }}>Statut rupture / tension en temps réel : à connecter à la source officielle ANSM (Trustmed) au back-end.</p>
         </div>
         {conditions && <div className="block"><p className="lbl">Conditions de délivrance</p><p className="val">{conditions}</p></div>}
         <div className="block hl"><p className="lbl">Posologie</p><p className="val">La posologie figure dans la notice officielle. Suivez la notice et l'avis de votre pharmacien.</p></div>
